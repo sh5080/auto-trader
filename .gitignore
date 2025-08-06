@@ -1,0 +1,120 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go binary files (all platforms)
+auto-trader
+auto-trader.exe
+auto-trader.darwin
+auto-trader.linux
+auto-trader.windows
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# Go coverage files
+coverage.txt
+coverage.html
+coverage.out
+
+# Go modules
+go.sum
+
+# Go vendor directory
+vendor/
+
+# Go debug files
+debug
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+.env.test
+
+# Configuration files with sensitive data
+config/config.yaml
+config/*.key
+config/*.pem
+config/*.crt
+config/*.p12
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+build/
+dist/
+bin/
+
+# Coverage reports
+coverage.txt
+coverage.html
+coverage.out
+
+# Air temporary files (for hot reload)
+tmp/
+
+# Docker volumes
+docker-volumes/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Cache directories
+.cache/
+*.cache
+
+# Local development files
+.local/
+local/ 
