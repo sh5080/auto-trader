@@ -1,10 +1,13 @@
 package router
 
 import (
+	"auto-trader/pkg/domain/portfolio"
 	"auto-trader/pkg/domain/strategy"
 	"auto-trader/pkg/shared/middleware"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/sirupsen/logrus"
+	fiberSwagger "github.com/swaggo/fiber-swagger"
 )
 
 // Router 메인 라우터 구조체
@@ -33,7 +36,7 @@ func New(riskManager *middleware.Manager) *Router {
 // SetupRoutes 모든 라우트 설정
 func (r *Router) SetupRoutes(
 	strategyController *strategy.Controller,
-	// dataController *data.Controller,      // 향후 추가
+	portfolioController *portfolio.Controller,
 	// orderController *order.Controller,     // 향후 추가
 ) {
 	// 글로벌 미들웨어 설정
@@ -47,14 +50,23 @@ func (r *Router) SetupRoutes(
 
 	// 각 도메인 라우트 설정
 	SetupStrategyRoutes(v1, strategyController)
+	SetupPortfolioRoutes(v1, portfolioController)
 
 	// 향후 추가될 도메인들
 	// tradingGroup := v1.Group("/", r.setupRiskMiddleware())
-	// dataHandler.RegisterRoutes(v1.Group("/data"))
 	// orderHandler.RegisterRoutes(tradingGroup.Group("/orders"))
 
 	// 404 핸들러 (가장 마지막에 등록)
 	r.app.Use(middleware.SetupNotFoundHandler())
+}
+
+// SetupSwagger Swagger UI 설정
+func (r *Router) SetupSwagger() {
+	r.app.Get("/docs", func(c *fiber.Ctx) error {
+		return c.Redirect("/docs/index.html")
+	})
+	r.app.Get("/docs/*", fiberSwagger.WrapHandler)
+	logrus.Info("📚 Swagger UI 설정 완료: /docs/*")
 }
 
 // GetApp Fiber 앱 인스턴스 반환
@@ -85,12 +97,6 @@ func (r *Router) healthCheck(c *fiber.Ctx) error {
 		"version": "1.0.0",
 		"timestamp": fiber.Map{
 			"now": c.Context().Time(),
-		},
-		"middleware": fiber.Map{
-			"cors":    "enabled",
-			"logging": "structured",
-			"error":   "advanced",
-			"panic":   "recovery",
 		},
 	})
 }
