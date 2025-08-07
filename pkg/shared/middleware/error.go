@@ -1,32 +1,18 @@
 package middleware
 
 import (
-	"errors"
+	"fmt"
+	"runtime/debug"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 )
 
-// ErrorResponse 표준 에러 응답 구조체
+// ErrorResponse 에러 응답 구조체
 type ErrorResponse struct {
-	Success bool        `json:"success"`
-	Error   string      `json:"error"`
-	Code    string      `json:"code,omitempty"`
-	Details interface{} `json:"details,omitempty"`
-}
-
-// SetupErrorHandler 기본 에러 핸들링 미들웨어
-func SetupErrorHandler() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		err := c.Next()
-		if err != nil {
-			return c.Status(500).JSON(ErrorResponse{
-				Success: false,
-				Error:   err.Error(),
-			})
-		}
-		return nil
-	}
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
 }
 
 // SetupAdvancedErrorHandler 고급 에러 핸들링 미들웨어
@@ -34,102 +20,30 @@ func SetupAdvancedErrorHandler() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		err := c.Next()
 		if err != nil {
-			// Fiber 에러 처리
-			var fiberErr *fiber.Error
-			if errors.As(err, &fiberErr) {
-				return c.Status(fiberErr.Code).JSON(ErrorResponse{
-					Success: false,
-					Error:   fiberErr.Message,
-					Code:    "FIBER_ERROR",
-				})
-			}
-
-			// 기본 에러 처리
-			logrus.WithError(err).WithFields(logrus.Fields{
+			logrus.WithFields(logrus.Fields{
 				"path":   c.Path(),
 				"method": c.Method(),
 				"ip":     c.IP(),
-			}).Error("HTTP 요청 처리 중 예상치 못한 오류 발생")
+				"error":  err.Error(),
+			}).Error("요청 처리 중 오류 발생")
 
+			// Fiber 기본 에러 처리
+			if e, ok := err.(*fiber.Error); ok {
+				return c.Status(e.Code).JSON(ErrorResponse{
+					Success: false,
+					Error:   e.Message,
+					Code:    fmt.Sprintf("HTTP_%d", e.Code),
+				})
+			}
+
+			// 일반 오류
 			return c.Status(500).JSON(ErrorResponse{
 				Success: false,
-				Error:   "내부 서버 오류가 발생했습니다",
-				Code:    "INTERNAL_SERVER_ERROR",
+				Error:   "서버 내부 오류가 발생했습니다",
+				Code:    "INTERNAL_ERROR",
 			})
 		}
 		return nil
-	}
-}
-
-// SetupCustomErrorHandler 커스텀 에러 핸들링 미들웨어
-func SetupCustomErrorHandler(
-	showDetails bool,
-	logger *logrus.Logger,
-) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		err := c.Next()
-		if err != nil {
-			var fiberErr *fiber.Error
-			var statusCode int = 500
-			var errorCode string = "INTERNAL_SERVER_ERROR"
-			var errorMessage string = "내부 서버 오류가 발생했습니다"
-
-			if errors.As(err, &fiberErr) {
-				statusCode = fiberErr.Code
-				errorMessage = fiberErr.Message
-				errorCode = "FIBER_ERROR"
-			} else if showDetails {
-				errorMessage = err.Error()
-			}
-
-			// 로깅
-			logEntry := logger.WithError(err).WithFields(logrus.Fields{
-				"path":        c.Path(),
-				"method":      c.Method(),
-				"ip":          c.IP(),
-				"user_agent":  c.Get("User-Agent"),
-				"request_id":  c.Get("X-Request-ID"),
-				"status_code": statusCode,
-			})
-
-			if statusCode >= 500 {
-				logEntry.Error("서버 오류 발생")
-			} else {
-				logEntry.Warn("클라이언트 오류 발생")
-			}
-
-			response := ErrorResponse{
-				Success: false,
-				Error:   errorMessage,
-				Code:    errorCode,
-			}
-
-			if showDetails {
-				response.Details = map[string]interface{}{
-					"path":      c.Path(),
-					"method":    c.Method(),
-					"timestamp": c.Context().Time(),
-				}
-			}
-
-			return c.Status(statusCode).JSON(response)
-		}
-		return nil
-	}
-}
-
-// SetupNotFoundHandler 404 Not Found 핸들러
-func SetupNotFoundHandler() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		return c.Status(404).JSON(ErrorResponse{
-			Success: false,
-			Error:   "요청하신 리소스를 찾을 수 없습니다",
-			Code:    "NOT_FOUND",
-			Details: map[string]interface{}{
-				"path":   c.Path(),
-				"method": c.Method(),
-			},
-		})
 	}
 }
 
@@ -138,21 +52,45 @@ func SetupPanicRecovery() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		defer func() {
 			if r := recover(); r != nil {
+				// 스택 트레이스 가져오기
+				stack := debug.Stack()
+
 				logrus.WithFields(logrus.Fields{
-					"panic":  r,
-					"path":   c.Path(),
-					"method": c.Method(),
-					"ip":     c.IP(),
+					"panic":      r,
+					"path":       c.Path(),
+					"method":     c.Method(),
+					"ip":         c.IP(),
+					"user_agent": c.Get("User-Agent"),
+					"stack":      string(stack),
 				}).Error("패닉 발생 - 서버 복구됨")
 
-				c.Status(500).JSON(ErrorResponse{
+				errorResponse := ErrorResponse{
 					Success: false,
 					Error:   "심각한 서버 오류가 발생했습니다",
 					Code:    "PANIC_RECOVERED",
-				})
+				}
+
+				c.Status(500).JSON(errorResponse)
 			}
 		}()
 
 		return c.Next()
+	}
+}
+
+// SetupNotFoundHandler 404 핸들러
+func SetupNotFoundHandler() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		logrus.WithFields(logrus.Fields{
+			"path":   c.Path(),
+			"method": c.Method(),
+			"ip":     c.IP(),
+		}).Warn("404 - 요청한 리소스를 찾을 수 없습니다")
+
+		return c.Status(404).JSON(ErrorResponse{
+			Success: false,
+			Error:   "요청한 리소스를 찾을 수 없습니다",
+			Code:    "NOT_FOUND",
+		})
 	}
 }
