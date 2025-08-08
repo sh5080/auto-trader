@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )
 
@@ -110,9 +109,6 @@ func (r *DBRepository) GetByID(id string) (*StrategyDetails, error) {
 
 	err := r.db.Get(&result, query, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("전략을 찾을 수 없습니다: %s", id)
-		}
 		return nil, fmt.Errorf("전략 조회 실패: %w", err)
 	}
 
@@ -196,9 +192,6 @@ func (r *DBRepository) Create(strategy *StrategyDetails) error {
 	)
 
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-			return fmt.Errorf("이미 존재하는 전략입니다: %s", strategy.ID)
-		}
 		return fmt.Errorf("전략 생성 실패: %w", err)
 	}
 
@@ -250,7 +243,7 @@ func (r *DBRepository) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("트랜잭션 시작 실패: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// 연관 데이터는 CASCADE로 자동 삭제됨
 	query := `DELETE FROM user_strategies WHERE id = $1`
@@ -335,7 +328,7 @@ func (r *DBRepository) GetStatus(id string) (*StrategyStatus, error) {
 		status.ErrorMessage = errorMessage.String
 	}
 	if uptimeSeconds.Valid {
-		status.Uptime = time.Duration(uptimeSeconds.Int64) * time.Second
+		status.Uptime = uptimeSeconds.Int64
 	}
 
 	return &status, nil
@@ -363,7 +356,7 @@ func (r *DBRepository) SaveStatus(status *StrategyStatus) error {
 		status.LastExecution,
 		status.ExecutionCount,
 		status.ErrorMessage,
-		int64(status.Uptime.Seconds()),
+		status.Uptime,
 	)
 
 	if err != nil {

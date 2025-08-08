@@ -66,9 +66,6 @@ func (a *Adapter) ConvertBalanceToPosition(kisBalance KISBalanceOutput1) (*portf
 		DailyProfitRate: dailyProfitRate,
 		LastUpdated:     time.Now(),
 		UpdatedAt:       time.Now(),
-		IsRealTime:      true,
-		DataSource:      "KIS_API",
-		LastSyncAt:      time.Now(),
 	}, nil
 }
 
@@ -146,9 +143,6 @@ func (a *Adapter) ConvertPriceToStockPrice(kisPrice KISPriceOutput) (*portfolio.
 		Open:          open,
 		PreviousClose: prevPrice,
 		Timestamp:     time.Now(),
-		IsRealTime:    true,
-		DataSource:    "KIS_API",
-		LastSyncAt:    time.Now(),
 	}, nil
 }
 
@@ -159,7 +153,6 @@ func (a *Adapter) ConvertBalanceToPortfolio(userID string, balanceResp *KISBalan
 	}
 
 	// 포지션들 변환
-	var positions []*portfolio.Position
 	totalValue := decimal.Zero
 	totalProfit := decimal.Zero
 
@@ -169,7 +162,6 @@ func (a *Adapter) ConvertBalanceToPortfolio(userID string, balanceResp *KISBalan
 			return nil, fmt.Errorf("포지션 변환 실패: %w", err)
 		}
 		position.UserID = userID
-		positions = append(positions, position)
 
 		totalValue = totalValue.Add(position.TotalValue)
 		totalProfit = totalProfit.Add(position.TotalProfit)
@@ -188,8 +180,5 @@ func (a *Adapter) ConvertBalanceToPortfolio(userID string, balanceResp *KISBalan
 		ProfitRate:  profitRate,
 		LastUpdated: time.Now(),
 		UpdatedAt:   time.Now(),
-		IsRealTime:  true,
-		DataSource:  "KIS_API",
-		LastSyncAt:  time.Now(),
 	}, nil
 }

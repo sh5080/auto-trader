@@ -4,6 +4,7 @@ import (
 	"auto-trader/pkg/api/kis/dto"
 	"auto-trader/pkg/shared/utils"
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -29,11 +30,17 @@ type Client struct {
 // NewClient 새로운 KIS API 클라이언트 생성
 func NewClient(appKey, appSecret, baseURL string, isDemo bool) *Client {
 	return &Client{
-		AppKey:     appKey,
-		AppSecret:  appSecret,
-		BaseURL:    baseURL,
-		IsDemo:     isDemo,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		AppKey:      appKey,
+		AppSecret:   appSecret,
+		AccessToken: "",
+		BaseURL:     baseURL,
+		IsDemo:      isDemo,
+		HTTPClient: &http.Client{
+			Transport:     nil,
+			CheckRedirect: nil,
+			Jar:           nil,
+			Timeout:       30 * time.Second,
+		},
 	}
 }
 
@@ -70,7 +77,8 @@ func (c *Client) GetBalance(accountNo string) (*KISBalanceResponse, error) {
 	}
 
 	// HTTP 요청 생성
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("http 요청 생성 실패: %w", err)
 	}
@@ -90,7 +98,7 @@ func (c *Client) GetBalance(accountNo string) (*KISBalanceResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("API 요청 실패: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 응답 읽기
 	body, err := io.ReadAll(resp.Body)
@@ -133,13 +141,14 @@ func (c *Client) GetCurrentPrice(symbol string) (*KISPriceResponse, error) {
 	// Hashkey 생성
 	hashkey, err := c.generateHashkey(string(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("Hashkey 생성 실패: %w", err)
+		return nil, fmt.Errorf("hashkey 생성 실패: %w", err)
 	}
 
 	// HTTP 요청 생성
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("HTTP 요청 생성 실패: %w", err)
+		return nil, fmt.Errorf("http 요청 생성 실패: %w", err)
 	}
 
 	// 공통 헤더 설정
@@ -157,7 +166,7 @@ func (c *Client) GetCurrentPrice(symbol string) (*KISPriceResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("API 요청 실패: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 응답 읽기
 	body, err := io.ReadAll(resp.Body)

@@ -329,7 +329,7 @@ func (s *ServiceImpl) StartStrategy(id string) error {
 	s.mutex.Lock()
 	if strategyInstance, exists := s.strategies[id]; exists {
 		s.activeStrategies[id] = true
-		strategyInstance.Start()
+		_ = strategyInstance.Start()
 	}
 	s.mutex.Unlock()
 
@@ -368,7 +368,7 @@ func (s *ServiceImpl) StopStrategy(id string) error {
 	s.mutex.Lock()
 	if strategyInstance, exists := s.strategies[id]; exists {
 		delete(s.activeStrategies, id)
-		strategyInstance.Stop()
+		_ = strategyInstance.Stop()
 	}
 	s.mutex.Unlock()
 

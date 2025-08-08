@@ -41,12 +41,12 @@ type StrategyPerformance struct {
 
 // StrategyStatus 전략 실행 상태
 type StrategyStatus struct {
-	ID             string        `json:"id"`
-	Status         string        `json:"status"` // "active", "inactive", "error"
-	LastExecution  time.Time     `json:"last_execution"`
-	ErrorMessage   string        `json:"error_message,omitempty"`
-	ExecutionCount int64         `json:"execution_count"`
-	Uptime         time.Duration `json:"uptime"`
+	ID             string    `json:"id"`
+	Status         string    `json:"status"` // "active", "inactive", "error"
+	LastExecution  time.Time `json:"last_execution"`
+	ErrorMessage   string    `json:"error_message,omitempty"`
+	ExecutionCount int64     `json:"execution_count"`
+	Uptime         int64     `json:"uptime"` // 초 단위
 }
 
 // StrategyConfig 전략 설정

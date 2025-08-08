@@ -1,11 +1,13 @@
 package strategy
 
 import (
+	"auto-trader/pkg/shared/types"
+	"auto-trader/pkg/shared/utils"
+
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 )
 
-// Controller 전략 HTTP 컨트롤러
+// Controller 전략 컨트롤러
 type Controller struct {
 	service Service
 }
@@ -18,269 +20,275 @@ func NewController(service Service) *Controller {
 }
 
 // GetAllStrategies 모든 전략 조회
+// @Summary 모든 전략 조회
+// @Description 사용자의 모든 전략 목록을 조회합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Success 200 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies [get]
 func (ctrl *Controller) GetAllStrategies(c *fiber.Ctx) error {
 	strategies, err := ctrl.service.GetAllStrategies()
 	if err != nil {
-		logrus.Errorf("전략 목록 조회 실패: %v", err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 목록을 조회할 수 없습니다",
-		})
+		return utils.InternalServerErrorResponse(c, "전략 목록 조회 실패", err)
 	}
 
-	activeCount := 0
-	for _, strategy := range strategies {
-		if strategy.Active {
-			activeCount++
-		}
-	}
-
-	return c.JSON(StrategyListResponse{
-		Success:    true,
-		Strategies: strategies,
-		Count:      len(strategies),
-		Active:     activeCount,
-	})
+	return utils.SuccessResponse(c, strategies)
 }
 
 // GetStrategy 특정 전략 조회
+// @Summary 특정 전략 조회
+// @Description ID로 특정 전략을 조회합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id} [get]
 func (ctrl *Controller) GetStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
 	}
 
-	strategy, err := ctrl.service.GetStrategy(id)
+	strategy, err := ctrl.service.GetStrategy(path.ID)
 	if err != nil {
-		logrus.Errorf("전략 조회 실패 (ID: %s): %v", id, err)
-		return c.Status(404).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 찾을 수 없습니다",
-		})
+		return utils.NotFoundResponse(c, "전략을 찾을 수 없습니다")
 	}
 
-	return c.JSON(StrategyResponse{
-		Success:  true,
-		Strategy: strategy,
-		Message:  "전략 조회 성공",
-	})
-}
-
-// GetStrategyStatus 전략 상태 조회
-func (ctrl *Controller) GetStrategyStatus(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
-	}
-
-	status, err := ctrl.service.GetStrategyStatus(id)
-	if err != nil {
-		logrus.Errorf("전략 상태 조회 실패 (ID: %s): %v", id, err)
-		return c.Status(404).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 상태를 조회할 수 없습니다",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"success": true,
-		"status":  status,
-	})
-}
-
-// GetStrategyPerformance 전략 성과 조회
-func (ctrl *Controller) GetStrategyPerformance(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
-	}
-
-	performance, err := ctrl.service.GetStrategyPerformance(id)
-	if err != nil {
-		logrus.Errorf("전략 성과 조회 실패 (ID: %s): %v", id, err)
-		return c.Status(404).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 성과를 조회할 수 없습니다",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"success":     true,
-		"performance": performance,
-	})
-}
-
-// StartStrategy 전략 시작
-func (ctrl *Controller) StartStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
-	}
-
-	err := ctrl.service.StartStrategy(id)
-	if err != nil {
-		logrus.Errorf("전략 시작 실패 (ID: %s): %v", id, err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 시작할 수 없습니다",
-		})
-	}
-
-	logrus.Infof("전략 시작됨 (ID: %s)", id)
-	return c.JSON(StrategyResponse{
-		Success: true,
-		Message: "전략이 성공적으로 시작되었습니다",
-	})
-}
-
-// StopStrategy 전략 중지
-func (ctrl *Controller) StopStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
-	}
-
-	err := ctrl.service.StopStrategy(id)
-	if err != nil {
-		logrus.Errorf("전략 중지 실패 (ID: %s): %v", id, err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 중지할 수 없습니다",
-		})
-	}
-
-	logrus.Infof("전략 중지됨 (ID: %s)", id)
-	return c.JSON(StrategyResponse{
-		Success: true,
-		Message: "전략이 성공적으로 중지되었습니다",
-	})
-}
-
-// RestartStrategy 전략 재시작
-func (ctrl *Controller) RestartStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
-	}
-
-	err := ctrl.service.RestartStrategy(id)
-	if err != nil {
-		logrus.Errorf("전략 재시작 실패 (ID: %s): %v", id, err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 재시작할 수 없습니다",
-		})
-	}
-
-	logrus.Infof("전략 재시작됨 (ID: %s)", id)
-	return c.JSON(StrategyResponse{
-		Success: true,
-		Message: "전략이 성공적으로 재시작되었습니다",
-	})
+	return utils.SuccessResponse(c, strategy)
 }
 
 // CreateStrategy 전략 생성
+// @Summary 전략 생성
+// @Description 새로운 전략을 생성합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param strategy body CreateStrategyRequest true "전략 정보"
+// @Success 201 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies [post]
 func (ctrl *Controller) CreateStrategy(c *fiber.Ctx) error {
 	var req CreateStrategyRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "잘못된 요청 형식입니다",
-		})
+		return utils.BadRequestResponse(c, "잘못된 요청 형식")
+	}
+	if err := utils.ValidateStruct(req); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
 	}
 
 	strategy, err := ctrl.service.CreateStrategy(&req)
 	if err != nil {
-		logrus.Errorf("전략 생성 실패: %v", err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 생성할 수 없습니다",
-		})
+		return utils.InternalServerErrorResponse(c, "전략 생성 실패", err)
 	}
 
-	logrus.Infof("새 전략 생성됨 (ID: %s, Name: %s)", strategy.ID, strategy.Name)
-	return c.Status(201).JSON(StrategyResponse{
-		Success:  true,
-		Strategy: strategy,
-		Message:  "전략이 성공적으로 생성되었습니다",
-	})
+	return utils.SuccessResponse(c, strategy, fiber.StatusCreated)
 }
 
 // UpdateStrategy 전략 수정
+// @Summary 전략 수정
+// @Description 전략을 수정합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Param strategy body UpdateStrategyRequest true "수정할 전략 정보"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id} [put]
 func (ctrl *Controller) UpdateStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
 	}
 
 	var req UpdateStrategyRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "잘못된 요청 형식입니다",
-		})
+		return utils.BadRequestResponse(c, "잘못된 요청 형식")
 	}
+	// Update는 부분 업데이트 허용이므로 필수값 검증은 스킵하거나 필요한 필드만 검증
 
-	strategy, err := ctrl.service.UpdateStrategy(id, &req)
+	strategy, err := ctrl.service.UpdateStrategy(path.ID, &req)
 	if err != nil {
-		logrus.Errorf("전략 수정 실패 (ID: %s): %v", id, err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 수정할 수 없습니다",
-		})
+		return utils.InternalServerErrorResponse(c, "전략 수정 실패", err)
 	}
 
-	logrus.Infof("전략 수정됨 (ID: %s)", id)
-	return c.JSON(StrategyResponse{
-		Success:  true,
-		Strategy: strategy,
-		Message:  "전략이 성공적으로 수정되었습니다",
-	})
+	return utils.SuccessResponse(c, strategy)
 }
 
 // DeleteStrategy 전략 삭제
+// @Summary 전략 삭제
+// @Description 전략을 삭제합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 204 "No Content"
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id} [delete]
 func (ctrl *Controller) DeleteStrategy(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if id == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략 ID가 필요합니다",
-		})
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
 	}
 
-	err := ctrl.service.DeleteStrategy(id)
+	if err := ctrl.service.DeleteStrategy(path.ID); err != nil {
+		return utils.InternalServerErrorResponse(c, "전략 삭제 실패", err)
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// GetStrategyStatus 전략 상태 조회
+// @Summary 전략 상태 조회
+// @Description 전략의 현재 상태를 조회합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id}/status [get]
+func (ctrl *Controller) GetStrategyStatus(c *fiber.Ctx) error {
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
+	}
+
+	status, err := ctrl.service.GetStrategyStatus(path.ID)
 	if err != nil {
-		logrus.Errorf("전략 삭제 실패 (ID: %s): %v", id, err)
-		return c.Status(500).JSON(fiber.Map{
-			"success": false,
-			"error":   "전략을 삭제할 수 없습니다",
-		})
+		return utils.NotFoundResponse(c, "전략 상태를 찾을 수 없습니다")
 	}
 
-	logrus.Infof("전략 삭제됨 (ID: %s)", id)
-	return c.JSON(StrategyResponse{
-		Success: true,
-		Message: "전략이 성공적으로 삭제되었습니다",
+	return utils.SuccessResponse(c, status)
+}
+
+// StartStrategy 전략 시작
+// @Summary 전략 시작
+// @Description 전략을 시작합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id}/start [post]
+func (ctrl *Controller) StartStrategy(c *fiber.Ctx) error {
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
+	}
+
+	if err := ctrl.service.StartStrategy(path.ID); err != nil {
+		return utils.InternalServerErrorResponse(c, "전략 시작 실패", err)
+	}
+
+	return utils.SuccessResponse(c, fiber.Map{
+		"message":     "전략이 시작되었습니다",
+		"strategy_id": path.ID,
 	})
+}
+
+// StopStrategy 전략 중지
+// @Summary 전략 중지
+// @Description 전략을 중지합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id}/stop [post]
+func (ctrl *Controller) StopStrategy(c *fiber.Ctx) error {
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
+	}
+
+	if err := ctrl.service.StopStrategy(path.ID); err != nil {
+		return utils.InternalServerErrorResponse(c, "전략 중지 실패", err)
+	}
+
+	return utils.SuccessResponse(c, fiber.Map{
+		"message":     "전략이 중지되었습니다",
+		"strategy_id": path.ID,
+	})
+}
+
+// RestartStrategy 전략 재시작
+// @Summary 전략 재시작
+// @Description 전략을 재시작합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id}/restart [post]
+func (ctrl *Controller) RestartStrategy(c *fiber.Ctx) error {
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
+	}
+
+	if err := ctrl.service.RestartStrategy(path.ID); err != nil {
+		return utils.InternalServerErrorResponse(c, "전략 재시작 실패", err)
+	}
+
+	return utils.SuccessResponse(c, fiber.Map{
+		"message":     "전략이 재시작되었습니다",
+		"strategy_id": path.ID,
+	})
+}
+
+// GetStrategyPerformance 전략 성과 조회
+// @Summary 전략 성과 조회
+// @Description 전략의 성과 정보를 조회합니다
+// @Tags strategies
+// @Accept json
+// @Produce json
+// @Param id path string true "전략 ID"
+// @Success 200 {object} utils.Response
+// @Failure 400 {object} utils.Response
+// @Failure 404 {object} utils.Response
+// @Failure 500 {object} utils.Response
+// @Router /strategies/{id}/performance [get]
+func (ctrl *Controller) GetStrategyPerformance(c *fiber.Ctx) error {
+	var path types.Id
+	path.ID = c.Params("id")
+	if err := utils.ValidateStruct(path); err != nil {
+		return utils.ValidationErrorResponse(c, err.Error())
+	}
+
+	performance, err := ctrl.service.GetStrategyPerformance(path.ID)
+	if err != nil {
+		return utils.NotFoundResponse(c, "전략 성과를 찾을 수 없습니다")
+	}
+
+	return utils.SuccessResponse(c, performance)
 }
