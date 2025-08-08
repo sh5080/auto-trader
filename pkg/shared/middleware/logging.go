@@ -10,29 +10,29 @@ import (
 
 // SetupLogger 기본 로깅 미들웨어 설정
 func SetupLogger() fiber.Handler {
-	return logger.New(logger.Config{
-		Format:     "[${time}] ${status} - ${method} ${path} (${latency})\n",
-		TimeFormat: "2006-01-02 15:04:05",
-		TimeZone:   "Local",
-	})
+	var cfg logger.Config
+	cfg.Format = "[${time}] ${status} - ${method} ${path} (${latency})\n"
+	cfg.TimeFormat = "2006-01-02 15:04:05"
+	cfg.TimeZone = "Local"
+	return logger.New(cfg)
 }
 
 // SetupDetailedLogger 상세 로깅 미들웨어 설정
 func SetupDetailedLogger() fiber.Handler {
-	return logger.New(logger.Config{
-		Format:     "[${time}] ${ip} | ${status} | ${latency} | ${method} | ${path} | ${error}\n",
-		TimeFormat: "2006-01-02 15:04:05",
-		TimeZone:   "Local",
-	})
+	var cfg logger.Config
+	cfg.Format = "[${time}] ${ip} | ${status} | ${latency} | ${method} | ${path} | ${error}\n"
+	cfg.TimeFormat = "2006-01-02 15:04:05"
+	cfg.TimeZone = "Local"
+	return logger.New(cfg)
 }
 
 // SetupJSONLogger JSON 형식 로깅 미들웨어
 func SetupJSONLogger() fiber.Handler {
-	return logger.New(logger.Config{
-		Format:     `{"time":"${time}","ip":"${ip}","method":"${method}","path":"${path}","status":${status},"latency":"${latency}","user_agent":"${ua}","error":"${error}"}` + "\n",
-		TimeFormat: time.RFC3339,
-		TimeZone:   "UTC",
-	})
+	var cfg logger.Config
+	cfg.Format = `{"time":"${time}","ip":"${ip}","method":"${method}","path":"${path}","status":${status},"latency":"${latency}","user_agent":"${ua}","error":"${error}"}` + "\n"
+	cfg.TimeFormat = time.RFC3339
+	cfg.TimeZone = "UTC"
+	return logger.New(cfg)
 }
 
 // SetupStructuredLogger Logrus를 활용한 구조화된 로깅
@@ -75,9 +75,9 @@ func SetupStructuredLogger() fiber.Handler {
 
 // SetupCustomLogger 커스텀 로깅 설정
 func SetupCustomLogger(format, timeFormat, timeZone string) fiber.Handler {
-	return logger.New(logger.Config{
-		Format:     format,
-		TimeFormat: timeFormat,
-		TimeZone:   timeZone,
-	})
+	var cfg logger.Config
+	cfg.Format = format
+	cfg.TimeFormat = timeFormat
+	cfg.TimeZone = timeZone
+	return logger.New(cfg)
 }

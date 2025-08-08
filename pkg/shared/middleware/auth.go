@@ -48,7 +48,7 @@ func AuthMiddleware(secret string, accessTTL, refreshTTL time.Duration) fiber.Ha
 				return utils.UnauthorizedResponse(c, "리프레시 토큰이 유효하지 않습니다")
 			}
 			userID := rClaims.UserID
-			jti := rClaims.RegisteredClaims.ID
+			jti := rClaims.ID
 			current, ok := authstore.GetRefreshJTI(userID)
 			if !ok || current != jti {
 				return utils.UnauthorizedResponse(c, "리프레시 토큰이 회전되어 사용 불가합니다")

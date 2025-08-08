@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -14,7 +15,7 @@ type Validator interface {
 // ValidateStruct 구조체의 필수 필드들을 자동으로 검증
 // `validate:"required"` 태그가 있는 필드들을 검증
 func ValidateStruct(v interface{}) error {
-	var errors ValidationErrors
+	var errors ValidationsError
 
 	val := reflect.ValueOf(v)
 	if val.Kind() == reflect.Ptr {
@@ -63,7 +64,7 @@ func ValidateStruct(v interface{}) error {
 		// enum 검증
 		if strings.Contains(validateTag, "enum=") {
 			enumValues := extractTagValue(validateTag, "enum=")
-			if err := validateEnum(field, fieldType.Name, enumValues); err != nil {
+			if err := validateEnum(field, enumValues); err != nil {
 				errors.AddError(fieldType.Name, err.Error())
 			}
 		}
@@ -114,19 +115,19 @@ func validateRequiredField(field reflect.Value) error {
 
 // validateMinLength 최소 길이 검증
 func validateMinLength(field reflect.Value, minStr string) error {
-	min, err := parseInt(minStr)
+	minLength, err := parseInt(minStr)
 	if err != nil {
-		return fmt.Errorf("최소값 파싱 오류: %v", err)
+		return fmt.Errorf("최소값 파싱 오류: %w", err)
 	}
 
 	switch field.Kind() {
 	case reflect.String:
-		if len(strings.TrimSpace(field.String())) < min {
-			return fmt.Errorf("최소 %d자 이상이어야 합니다", min)
+		if len(strings.TrimSpace(field.String())) < minLength {
+			return fmt.Errorf("최소 %d자 이상이어야 합니다", minLength)
 		}
 	case reflect.Slice, reflect.Array:
-		if field.Len() < min {
-			return fmt.Errorf("최소 %d개 이상이어야 합니다", min)
+		if field.Len() < minLength {
+			return fmt.Errorf("최소 %d개 이상이어야 합니다", minLength)
 		}
 	}
 
@@ -135,19 +136,19 @@ func validateMinLength(field reflect.Value, minStr string) error {
 
 // validateMaxLength 최대 길이 검증
 func validateMaxLength(field reflect.Value, maxStr string) error {
-	max, err := parseInt(maxStr)
+	maxLength, err := parseInt(maxStr)
 	if err != nil {
-		return fmt.Errorf("최대값 파싱 오류: %v", err)
+		return fmt.Errorf("최대값 파싱 오류: %w", err)
 	}
 
 	switch field.Kind() {
 	case reflect.String:
-		if len(strings.TrimSpace(field.String())) > max {
-			return fmt.Errorf("최대 %d자까지 가능합니다", max)
+		if len(strings.TrimSpace(field.String())) > maxLength {
+			return fmt.Errorf("최대 %d자까지 가능합니다", maxLength)
 		}
 	case reflect.Slice, reflect.Array:
-		if field.Len() > max {
-			return fmt.Errorf("최대 %d개까지 가능합니다", max)
+		if field.Len() > maxLength {
+			return fmt.Errorf("최대 %d개까지 가능합니다", maxLength)
 		}
 	}
 
@@ -155,21 +156,16 @@ func validateMaxLength(field reflect.Value, maxStr string) error {
 }
 
 // validateEnum 열거형 값 검증
-func validateEnum(field reflect.Value, fieldName, enumStr string) error {
+func validateEnum(field reflect.Value, enumStr string) error {
 	allowedValues := strings.Split(enumStr, ",")
 
-	switch field.Kind() {
-	case reflect.String:
-		value := field.String()
-		for _, allowed := range allowedValues {
-			if value == strings.TrimSpace(allowed) {
-				return nil
-			}
+	value := field.String()
+	for _, allowed := range allowedValues {
+		if value == strings.TrimSpace(allowed) {
+			return nil
 		}
-		return fmt.Errorf("허용된 값: %s", strings.Join(allowedValues, ", "))
 	}
-
-	return nil
+	return fmt.Errorf("허용된 값: %s", strings.Join(allowedValues, ", "))
 }
 
 // extractTagValue 태그에서 값 추출
@@ -197,20 +193,28 @@ func parseInt(s string) (int, error) {
 
 // ValidateMultiple 여러 검증 함수를 순차적으로 실행
 func ValidateMultiple(validations ...func() error) error {
-	var errors ValidationErrors
+	var validationErrors ValidationsError
 
 	for _, validation := range validations {
 		if err := validation(); err != nil {
-			if validationErr, ok := err.(ValidationError); ok {
-				errors.AddError(validationErr.Field, validationErr.Message)
+			var list ValidationsError
+			if errors.As(err, &list) {
+				for _, ve := range list.Errors {
+					validationErrors.AddError(ve.Field, ve.Message)
+				}
+				continue
+			}
+			var ve ValidationError
+			if errors.As(err, &ve) {
+				validationErrors.AddError(ve.Field, ve.Message)
 			} else {
-				errors.AddError("unknown", err.Error())
+				validationErrors.AddError("unknown", err.Error())
 			}
 		}
 	}
 
-	if errors.HasErrors() {
-		return errors
+	if validationErrors.HasErrors() {
+		return validationErrors
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"runtime/debug"
 
@@ -28,11 +29,12 @@ func SetupAdvancedErrorHandler() fiber.Handler {
 			}).Error("요청 처리 중 오류 발생")
 
 			// Fiber 기본 에러 처리
-			if e, ok := err.(*fiber.Error); ok {
-				return c.Status(e.Code).JSON(ErrorResponse{
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return c.Status(fe.Code).JSON(ErrorResponse{
 					Success: false,
-					Error:   e.Message,
-					Code:    fmt.Sprintf("HTTP_%d", e.Code),
+					Error:   fe.Message,
+					Code:    fmt.Sprintf("HTTP_%d", fe.Code),
 				})
 			}
 
@@ -70,7 +72,7 @@ func SetupPanicRecovery() fiber.Handler {
 					Code:    "PANIC_RECOVERED",
 				}
 
-				c.Status(500).JSON(errorResponse)
+				_ = c.Status(500).JSON(errorResponse)
 			}
 		}()
 

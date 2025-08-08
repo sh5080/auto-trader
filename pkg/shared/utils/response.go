@@ -9,8 +9,12 @@ import (
 type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
-	Code    string      `json:"code,omitempty"`
+}
+
+type Error struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	Code    string `json:"code,omitempty"`
 }
 
 // SuccessResponse 성공 응답
@@ -28,9 +32,10 @@ func SuccessResponse(c *fiber.Ctx, data interface{}, statusCode ...int) error {
 
 // ErrorResponse 에러 응답
 func ErrorResponse(c *fiber.Ctx, statusCode int, message string, code ...string) error {
-	response := Response{
+	response := Error{
 		Success: false,
 		Error:   message,
+		Code:    "INTERNAL_SERVER_ERROR",
 	}
 
 	if len(code) > 0 {
@@ -76,4 +81,25 @@ func ValidationErrorResponse(c *fiber.Ctx, message string) error {
 // ConflictResponse 충돌 응답
 func ConflictResponse(c *fiber.Ctx, message string) error {
 	return ErrorResponse(c, fiber.StatusConflict, message, "CONFLICT")
+}
+
+// CommonErrorResponse 서비스 레이어에서 전달한 의도 기반 에러를 HTTP 응답으로 매핑
+func CommonErrorResponse(c *fiber.Ctx, err error, defaultMessage string) error {
+	if err == nil {
+		return SuccessResponse(c, fiber.Map{"message": defaultMessage})
+	}
+	switch {
+	case IsBadRequest(err):
+		return BadRequestResponse(c, UnwrapValidationError(err).Error())
+	case IsUnauthorized(err):
+		return UnauthorizedResponse(c, err.Error())
+	case IsForbidden(err):
+		return ForbiddenResponse(c, err.Error())
+	case IsNotFound(err):
+		return NotFoundResponse(c, err.Error())
+	case IsConflict(err):
+		return ConflictResponse(c, err.Error())
+	default:
+		return InternalServerErrorResponse(c, defaultMessage, err)
+	}
 }

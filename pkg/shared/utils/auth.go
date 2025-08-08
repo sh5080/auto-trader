@@ -22,6 +22,11 @@ func GenerateTokens(userID, secret string, accessTTL, refreshTTL time.Duration, 
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(accessTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        refreshJTI,
+			Issuer:    "auto-trader",
+			Subject:   "access-token",
+			Audience:  jwt.ClaimStrings{"auto-trader"},
+			NotBefore: jwt.NewNumericDate(time.Now()),
 		},
 	}
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
@@ -37,6 +42,10 @@ func GenerateTokens(userID, secret string, accessTTL, refreshTTL time.Duration, 
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(refreshTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ID:        refreshJTI,
+			Issuer:    "auto-trader",
+			Subject:   "refresh-token",
+			Audience:  jwt.ClaimStrings{"auto-trader"},
+			NotBefore: jwt.NewNumericDate(time.Now()),
 		},
 	}
 	rt := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
