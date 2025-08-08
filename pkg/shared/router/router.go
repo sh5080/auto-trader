@@ -1,8 +1,11 @@
 package router
 
 import (
+	"auto-trader/pkg/domain/auth"
 	"auto-trader/pkg/domain/portfolio"
 	"auto-trader/pkg/domain/strategy"
+	"auto-trader/pkg/domain/user"
+	"auto-trader/pkg/shared/config"
 	"auto-trader/pkg/shared/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,14 +21,11 @@ type Router struct {
 
 // New 새로운 라우터 인스턴스 생성
 func New(riskManager *middleware.Manager) *Router {
-	app := fiber.New(fiber.Config{
-		AppName:      "Auto Trader",
-		ServerHeader: "Auto Trader v1.0",
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			// 커스텀 에러 핸들러는 미들웨어에서 처리
-			return err
-		},
-	})
+	var cfg fiber.Config
+	cfg.AppName = "Auto Trader"
+	cfg.ServerHeader = "Auto Trader v1.0"
+
+	app := fiber.New(cfg)
 
 	return &Router{
 		app:         app,
@@ -37,7 +37,9 @@ func New(riskManager *middleware.Manager) *Router {
 func (r *Router) SetupRoutes(
 	strategyController *strategy.Controller,
 	portfolioController *portfolio.Controller,
-	// orderController *order.Controller,     // 향후 추가
+	authController *auth.Controller,
+	userController *user.Controller,
+	cfg *config.Config,
 ) {
 	// 글로벌 미들웨어 설정
 	r.setupGlobalMiddleware()
@@ -47,16 +49,12 @@ func (r *Router) SetupRoutes(
 
 	// API v1 그룹
 	v1 := r.app.Group("/api/v1")
-
 	// 각 도메인 라우트 설정
-	SetupStrategyRoutes(v1, strategyController)
-	SetupPortfolioRoutes(v1, portfolioController)
+	SetupAuthRoutes(v1, authController)
+	SetupStrategyRoutes(v1, strategyController, cfg)
+	SetupPortfolioRoutes(v1, portfolioController, cfg)
+	SetupUserRoutes(v1, userController, cfg)
 
-	// 향후 추가될 도메인들
-	// tradingGroup := v1.Group("/", r.setupRiskMiddleware())
-	// orderHandler.RegisterRoutes(tradingGroup.Group("/orders"))
-
-	// 404 핸들러 (가장 마지막에 등록)
 	r.app.Use(middleware.SetupNotFoundHandler())
 }
 
