@@ -1,359 +1,241 @@
 package portfolio
 
 import (
-	"auto-trader/pkg/domain/portfolio/dto"
-	"database/sql"
-	"errors"
+	"context"
 	"fmt"
-	"strings"
-	"time"
+
+	"auto-trader/ent"
+	"auto-trader/ent/portfolio"
+
+	"auto-trader/pkg/domain/portfolio/dto"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
+	"github.com/shopspring/decimal"
 )
 
-// Repository 포트폴리오 리포지토리 인터페이스
+// Repository 포트폴리오 데이터 접근 인터페이스
 type Repository interface {
-	// 포트폴리오 관련
-	GetPortfolio(userID string) (*Portfolio, error)
-	SavePortfolio(portfolio *Portfolio) error
-	DeletePortfolio(userID string) error
+	// 기본 CRUD
+	Create(input dto.CreatePortfolioBody) (*ent.Portfolio, error)
+	GetByID(id uuid.UUID) (*ent.Portfolio, error)
+	Update(id uuid.UUID, input dto.UpdatePortfolioBody) (*ent.Portfolio, error)
+	Delete(id uuid.UUID) error
 
-	// 포지션 관련
-	GetPositions(userID string) ([]*Position, error)
-	GetPosition(userID, symbol string) (*Position, error)
-	SavePosition(position *Position) error
-	DeletePosition(userID, symbol string) error
+	// 기본 조회
+	GetAll(limit, offset int) ([]*ent.Portfolio, error)
+	Count() (int, error)
 
-	// 주식 가격 관련
-	GetStockPrice(symbol string) (*StockPrice, error)
-	SaveStockPrice(price *StockPrice) error
-	GetStockPrices(symbols []string) ([]*StockPrice, error)
+	// 포트폴리오 특화 메서드
+	GetByUserID(userID uuid.UUID, limit, offset int) ([]*ent.Portfolio, error)
+	GetBySymbol(symbol string) ([]*ent.Portfolio, error)
+	GetByUserAndSymbol(userID uuid.UUID, symbol string) (*ent.Portfolio, error)
 
-	// 거래 내역 관련
-	GetTradeHistory(userID string, q dto.GetTradeHistoryQuery) ([]*TradeHistory, error)
-	SaveTradeHistory(trade *TradeHistory) error
+	// 관계 조회
+	GetPortfolioWithUser(id uuid.UUID) (*ent.Portfolio, error)
 
-	// 포트폴리오 요약 관련
-	GetPortfolioSummary(userID string) (*PortfolioSummary, error)
-	SavePortfolioSummary(summary *PortfolioSummary) error
+	// 통계
+	CountByUser(userID uuid.UUID) (int, error)
+	CountBySymbol(symbol string) (int, error)
+	GetTotalValueByUser(userID uuid.UUID) (float64, error)
 }
 
-// ExternalDataSource 외부 데이터 소스 인터페이스 (의존성 역전)
-type ExternalDataSource interface {
-	// 잔고 조회
-	GetBalance(accountNo string) ([]*Position, error)
-
-	// 현재가 조회
-	GetCurrentPrice(symbol string) (*StockPrice, error)
-	GetCurrentPrices(symbols []string) ([]*StockPrice, error)
-
-	// 포트폴리오 요약 조회
-	GetPortfolioSummary(userID, accountNo string) (*PortfolioSummary, error)
+// EntRepository ent 기반 구현체
+type EntRepository struct {
+	client *ent.Client
 }
 
-// DBRepository SQL 기반 구현체
-type DBRepository struct {
-	db *sqlx.DB
+// NewEntRepository ent 기반 Repository 생성
+func NewEntRepository(client *ent.Client) Repository {
+	return &EntRepository{client: client}
 }
 
-// NewDBRepository 생성자
-func NewDBRepository(db *sqlx.DB) Repository {
-	return &DBRepository{db: db}
+// 헬퍼 함수들
+func (r *EntRepository) getContext() context.Context {
+	return context.Background()
 }
 
-// GetPortfolio 포트폴리오 조회
-func (r *DBRepository) GetPortfolio(userID string) (*Portfolio, error) {
-	var p Portfolio
-	query := `
-        SELECT id, user_id, total_value, total_profit, profit_rate,
-               last_updated, updated_at
-        FROM portfolios WHERE user_id = $1
-    `
-	if err := r.db.Get(&p, query, userID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("포트폴리오를 찾을 수 없습니다: %s", userID)
+// Create 포트폴리오 생성
+func (r *EntRepository) Create(input dto.CreatePortfolioBody) (*ent.Portfolio, error) {
+	portfolio, err := r.client.Portfolio.Create().
+		SetSymbol(input.Symbol).
+		SetQuantity(decimal.NewFromFloat(input.Quantity)).
+		SetUserID(input.UserID).
+		Save(r.getContext())
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create portfolio: %w", err)
+	}
+
+	return portfolio, nil
+}
+
+// GetByID ID로 포트폴리오 조회
+func (r *EntRepository) GetByID(id uuid.UUID) (*ent.Portfolio, error) {
+	portfolio, err := r.client.Portfolio.Get(r.getContext(), id)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, nil
 		}
-		return nil, fmt.Errorf("포트폴리오 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to get portfolio by id: %w", err)
 	}
-	return &p, nil
+	return portfolio, nil
 }
 
-// SavePortfolio 포트폴리오 저장 (UPSERT by user_id)
-func (r *DBRepository) SavePortfolio(portfolio *Portfolio) error {
-	if portfolio.ID == "" {
-		portfolio.ID = uuid.NewString()
+// Update 포트폴리오 정보 수정
+func (r *EntRepository) Update(id uuid.UUID, input dto.UpdatePortfolioBody) (*ent.Portfolio, error) {
+	updateQuery := r.client.Portfolio.UpdateOneID(id)
+
+	if input.Symbol != nil {
+		updateQuery.SetSymbol(*input.Symbol)
 	}
-	query := `
-        INSERT INTO portfolios (
-            id, user_id, total_value, total_profit, profit_rate,
-            last_updated, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
-        ON CONFLICT (user_id) DO UPDATE SET
-            total_value = EXCLUDED.total_value,
-            total_profit = EXCLUDED.total_profit,
-            profit_rate = EXCLUDED.profit_rate,
-            last_updated = EXCLUDED.last_updated,
-            updated_at = EXCLUDED.updated_at,
-    `
-	_, err := r.db.Exec(query,
-		portfolio.ID,
-		portfolio.UserID,
-		portfolio.TotalValue,
-		portfolio.TotalProfit,
-		portfolio.ProfitRate,
-		portfolio.LastUpdated,
-		portfolio.UpdatedAt,
-	)
+	if input.Quantity != nil {
+		updateQuery.SetQuantity(decimal.NewFromFloat(*input.Quantity))
+	}
+
+	portfolio, err := updateQuery.Save(r.getContext())
 	if err != nil {
-		return fmt.Errorf("포트폴리오 저장 실패: %w", err)
+		return nil, fmt.Errorf("failed to update portfolio: %w", err)
+	}
+
+	return portfolio, nil
+}
+
+// Delete 포트폴리오 삭제
+func (r *EntRepository) Delete(id uuid.UUID) error {
+	err := r.client.Portfolio.DeleteOneID(id).Exec(r.getContext())
+	if err != nil {
+		return fmt.Errorf("failed to delete portfolio: %w", err)
 	}
 	return nil
 }
 
-// DeletePortfolio 포트폴리오 삭제
-func (r *DBRepository) DeletePortfolio(userID string) error {
-	_, err := r.db.Exec(`DELETE FROM portfolios WHERE user_id = $1`, userID)
+// GetAll 모든 포트폴리오 조회 (페이지네이션)
+func (r *EntRepository) GetAll(limit, offset int) ([]*ent.Portfolio, error) {
+	portfolios, err := r.client.Portfolio.Query().
+		Limit(limit).
+		Offset(offset).
+		Order(ent.Desc(portfolio.FieldCreatedAt)).
+		All(r.getContext())
+
 	if err != nil {
-		return fmt.Errorf("포트폴리오 삭제 실패: %w", err)
+		return nil, fmt.Errorf("failed to get portfolios: %w", err)
 	}
-	return nil
+	return portfolios, nil
 }
 
-// GetPositions 보유 주식 목록 조회
-func (r *DBRepository) GetPositions(userID string) ([]*Position, error) {
-	var positions []*Position
-	query := `
-        SELECT id, user_id, symbol, company_name, quantity, average_price, current_price,
-               total_value, total_profit, profit_rate, daily_profit, daily_profit_rate,
-               last_updated, updated_at
-        FROM positions WHERE user_id = $1 ORDER BY updated_at DESC
-    `
-	if err := r.db.Select(&positions, query, userID); err != nil {
-		return nil, fmt.Errorf("포지션 목록 조회 실패: %w", err)
+// Count 전체 포트폴리오 수
+func (r *EntRepository) Count() (int, error) {
+	count, err := r.client.Portfolio.Query().Count(r.getContext())
+	if err != nil {
+		return 0, fmt.Errorf("failed to count portfolios: %w", err)
 	}
-	return positions, nil
+	return count, nil
 }
 
-// GetPosition 특정 보유 주식 조회
-func (r *DBRepository) GetPosition(userID, symbol string) (*Position, error) {
-	var p Position
-	query := `
-        SELECT id, user_id, symbol, company_name, quantity, average_price, current_price,
-               total_value, total_profit, profit_rate, daily_profit, daily_profit_rate,
-               last_updated, updated_at
-        FROM positions WHERE user_id = $1 AND symbol = $2 LIMIT 1
-    `
-	if err := r.db.Get(&p, query, userID, symbol); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("보유 주식을 찾을 수 없습니다: %s", symbol)
+// GetByUserID 사용자별 포트폴리오 조회
+func (r *EntRepository) GetByUserID(userID uuid.UUID, limit, offset int) ([]*ent.Portfolio, error) {
+	portfolios, err := r.client.Portfolio.Query().
+		Where(portfolio.UserID(userID)).
+		Limit(limit).
+		Offset(offset).
+		Order(ent.Desc(portfolio.FieldCreatedAt)).
+		All(r.getContext())
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get portfolios by user: %w", err)
+	}
+	return portfolios, nil
+}
+
+// GetBySymbol 심볼별 포트폴리오 조회
+func (r *EntRepository) GetBySymbol(symbol string) ([]*ent.Portfolio, error) {
+	portfolios, err := r.client.Portfolio.Query().
+		Where(portfolio.Symbol(symbol)).
+		Order(ent.Desc(portfolio.FieldCreatedAt)).
+		All(r.getContext())
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get portfolios by symbol: %w", err)
+	}
+	return portfolios, nil
+}
+
+// GetByUserAndSymbol 사용자와 심볼로 포트폴리오 조회
+func (r *EntRepository) GetByUserAndSymbol(userID uuid.UUID, symbol string) (*ent.Portfolio, error) {
+	portfolio, err := r.client.Portfolio.Query().
+		Where(
+			portfolio.And(
+				portfolio.UserID(userID),
+				portfolio.Symbol(symbol),
+			),
+		).
+		Only(r.getContext())
+
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return nil, nil
 		}
-		return nil, fmt.Errorf("포지션 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to get portfolio by user and symbol: %w", err)
 	}
-	return &p, nil
+	return portfolio, nil
 }
 
-// SavePosition 보유 주식 저장 (UPSERT by user_id+symbol)
-func (r *DBRepository) SavePosition(position *Position) error {
-	if position.ID == "" {
-		position.ID = uuid.NewString()
-	}
-	query := `
-        INSERT INTO positions (
-            id, user_id, symbol, company_name, quantity, average_price, current_price,
-            total_value, total_profit, profit_rate, daily_profit, daily_profit_rate,
-            last_updated, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT (user_id, symbol) DO UPDATE SET
-            company_name = EXCLUDED.company_name,
-            quantity = EXCLUDED.quantity,
-            average_price = EXCLUDED.average_price,
-            current_price = EXCLUDED.current_price,
-            total_value = EXCLUDED.total_value,
-            total_profit = EXCLUDED.total_profit,
-            profit_rate = EXCLUDED.profit_rate,
-            daily_profit = EXCLUDED.daily_profit,
-            daily_profit_rate = EXCLUDED.daily_profit_rate,
-            last_updated = EXCLUDED.last_updated,
-            updated_at = EXCLUDED.updated_at,
-    `
-	_, err := r.db.Exec(query,
-		position.ID,
-		position.UserID,
-		position.Symbol,
-		position.CompanyName,
-		position.Quantity,
-		position.AveragePrice,
-		position.CurrentPrice,
-		position.TotalValue,
-		position.TotalProfit,
-		position.ProfitRate,
-		position.DailyProfit,
-		position.DailyProfitRate,
-		position.LastUpdated,
-		position.UpdatedAt,
-	)
+// GetPortfolioWithUser 포트폴리오와 사용자 정보 함께 조회
+func (r *EntRepository) GetPortfolioWithUser(id uuid.UUID) (*ent.Portfolio, error) {
+	portfolio, err := r.client.Portfolio.Query().
+		Where(portfolio.ID(id)).
+		WithUser().
+		Only(r.getContext())
+
 	if err != nil {
-		return fmt.Errorf("포지션 저장 실패: %w", err)
-	}
-	return nil
-}
-
-// DeletePosition 보유 주식 삭제
-func (r *DBRepository) DeletePosition(userID, symbol string) error {
-	_, err := r.db.Exec(`DELETE FROM positions WHERE user_id = $1 AND symbol = $2`, userID, symbol)
-	if err != nil {
-		return fmt.Errorf("포지션 삭제 실패: %w", err)
-	}
-	return nil
-}
-
-// GetStockPrice 주식 가격 조회
-func (r *DBRepository) GetStockPrice(symbol string) (*StockPrice, error) {
-	var sp StockPrice
-	query := `
-        SELECT symbol, price, change, change_rate, volume, market_cap,
-               high, low, open, previous_close, timestamp
-        FROM stock_prices WHERE symbol = $1
-    `
-	if err := r.db.Get(&sp, query, symbol); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("주식 가격을 찾을 수 없습니다: %s", symbol)
+		if ent.IsNotFound(err) {
+			return nil, nil
 		}
-		return nil, fmt.Errorf("주식 가격 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to get portfolio with user: %w", err)
 	}
-	return &sp, nil
+	return portfolio, nil
 }
 
-// SaveStockPrice 주식 가격 저장 (UPSERT by symbol)
-func (r *DBRepository) SaveStockPrice(price *StockPrice) error {
-	query := `
-        INSERT INTO stock_prices (
-            symbol, price, change, change_rate, volume, market_cap,
-            high, low, open, previous_close, timestamp
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (symbol) DO UPDATE SET
-            price = EXCLUDED.price,
-            change = EXCLUDED.change,
-            change_rate = EXCLUDED.change_rate,
-            volume = EXCLUDED.volume,
-            market_cap = EXCLUDED.market_cap,
-            high = EXCLUDED.high,
-            low = EXCLUDED.low,
-            open = EXCLUDED.open,
-            previous_close = EXCLUDED.previous_close,
-            timestamp = EXCLUDED.timestamp
-    `
-	_, err := r.db.Exec(query,
-		price.Symbol,
-		price.Price,
-		price.Change,
-		price.ChangeRate,
-		price.Volume,
-		price.MarketCap,
-		price.High,
-		price.Low,
-		price.Open,
-		price.PreviousClose,
-		price.Timestamp,
-	)
+// CountByUser 사용자별 포트폴리오 수
+func (r *EntRepository) CountByUser(userID uuid.UUID) (int, error) {
+	count, err := r.client.Portfolio.Query().
+		Where(portfolio.UserID(userID)).
+		Count(r.getContext())
+
 	if err != nil {
-		return fmt.Errorf("주식 가격 저장 실패: %w", err)
+		return 0, fmt.Errorf("failed to count portfolios by user: %w", err)
 	}
-	return nil
+	return count, nil
 }
 
-// GetStockPrices 여러 주식 가격 조회
-func (r *DBRepository) GetStockPrices(symbols []string) ([]*StockPrice, error) {
-	if len(symbols) == 0 {
-		return []*StockPrice{}, nil
-	}
-	query, args, err := sqlx.In(`
-        SELECT symbol, price, change, change_rate, volume, market_cap,
-               high, low, open, previous_close, timestamp
-        FROM stock_prices WHERE symbol IN (?);
-    `, symbols)
+// CountBySymbol 심볼별 포트폴리오 수
+func (r *EntRepository) CountBySymbol(symbol string) (int, error) {
+	count, err := r.client.Portfolio.Query().
+		Where(portfolio.Symbol(symbol)).
+		Count(r.getContext())
+
 	if err != nil {
-		return nil, fmt.Errorf("쿼리 빌드 실패: %w", err)
+		return 0, fmt.Errorf("failed to count portfolios by symbol: %w", err)
 	}
-	query = r.db.Rebind(query)
-
-	var prices []*StockPrice
-	if err := r.db.Select(&prices, query, args...); err != nil {
-		return nil, fmt.Errorf("여러 주식 가격 조회 실패: %w", err)
-	}
-	return prices, nil
+	return count, nil
 }
 
-// GetTradeHistory 거래 내역 조회
-func (r *DBRepository) GetTradeHistory(userID string, q dto.GetTradeHistoryQuery) ([]*TradeHistory, error) {
-	var trades []*TradeHistory
-	base := `
-        SELECT id, user_id, symbol, type, quantity, price, total, fee, timestamp
-        FROM trade_histories WHERE user_id = $1
-    `
-	args := []interface{}{userID}
-	if strings.TrimSpace(q.Symbol) != "" {
-		base += " AND symbol = $2"
-		args = append(args, q.Symbol)
-	}
-	base += " ORDER BY timestamp DESC"
-	if q.Limit > 0 {
-		args = append(args, q.Limit)
-		base += fmt.Sprintf(" LIMIT $%d", len(args))
-	}
-	if q.Offset > 0 {
-		args = append(args, q.Offset)
-		base += fmt.Sprintf(" OFFSET $%d", len(args))
-	}
-	if err := r.db.Select(&trades, base, args...); err != nil {
-		return nil, fmt.Errorf("거래 내역 조회 실패: %w", err)
-	}
-	return trades, nil
-}
+// GetTotalValueByUser 사용자별 총 포트폴리오 가치
+func (r *EntRepository) GetTotalValueByUser(userID uuid.UUID) (float64, error) {
+	portfolios, err := r.client.Portfolio.Query().
+		Where(portfolio.UserID(userID)).
+		All(r.getContext())
 
-// SaveTradeHistory 거래 내역 저장
-func (r *DBRepository) SaveTradeHistory(trade *TradeHistory) error {
-	if trade.ID == "" {
-		trade.ID = uuid.NewString()
-	}
-	query := `
-        INSERT INTO trade_histories (id, user_id, symbol, type, quantity, price, total, fee, timestamp)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    `
-	_, err := r.db.Exec(query,
-		trade.ID,
-		trade.UserID,
-		trade.Symbol,
-		trade.Type,
-		trade.Quantity,
-		trade.Price,
-		trade.Total,
-		trade.Fee,
-		trade.Timestamp,
-	)
 	if err != nil {
-		return fmt.Errorf("거래 내역 저장 실패: %w", err)
+		return 0, fmt.Errorf("failed to get portfolios for total value calculation: %w", err)
 	}
-	return nil
-}
 
-// GetPortfolioSummary 포트폴리오 요약 조회 (간단 집계)
-func (r *DBRepository) GetPortfolioSummary(userID string) (*PortfolioSummary, error) {
-	positions, err := r.GetPositions(userID)
-	if err != nil {
-		return nil, err
+	var totalValue float64
+	for _, p := range portfolios {
+		// decimal.Decimal을 float64로 변환
+		quantity, _ := p.Quantity.Float64()
+		totalValue += quantity
 	}
-	sum := &PortfolioSummary{
-		Positions:     make([]Position, 0, len(positions)),
-		LastUpdated:   time.Now(),
-		DataFreshness: "DB",
-	}
-	for _, p := range positions {
-		sum.Positions = append(sum.Positions, *p)
-	}
-	return sum, nil
-}
 
-// SavePortfolioSummary 현재 미사용
-func (r *DBRepository) SavePortfolioSummary(summary *PortfolioSummary) error { return nil }
+	return totalValue, nil
+}

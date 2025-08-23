@@ -3,17 +3,17 @@ package user
 import (
 	"auto-trader/pkg/domain/user/dto"
 	"auto-trader/pkg/shared/utils"
-	"log"
-	"time"
+
+	"auto-trader/ent"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Service interface {
-	CreateUser(dto dto.CreateUserRequest) (*UserExceptPassword, error)
-	GetByID(id string) (*User, error)
-	GetByEmail(email string) (*User, error)
+	CreateUser(input dto.CreateUserBody) (*ent.User, error)
+	GetByID(id uuid.UUID) (*ent.User, error)
+	GetByEmail(email string) (*ent.User, error)
 	VerifyPassword(hashed, password string) error
 }
 
@@ -23,44 +23,44 @@ type ServiceImpl struct {
 
 func NewService(repo Repository) Service { return &ServiceImpl{repo: repo} }
 
-func (s *ServiceImpl) CreateUser(dto dto.CreateUserRequest) (*UserExceptPassword, error) {
-	log.Println("dto", dto)
-	existingUser, err := s.GetByEmail(dto.Email)
+func (s *ServiceImpl) CreateUser(input dto.CreateUserBody) (*ent.User, error) {
+	existingUser, err := s.GetByEmail(input.Email)
 	if err != nil {
 		return nil, err
 	}
-	log.Println("existingUser", existingUser)
 	if existingUser != nil {
 		return nil, utils.Conflict("email", "이미 존재하는 이메일입니다")
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(dto.Password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
-	u := UserExceptPassword{
-		ID:        uuid.NewString(),
-		Name:      dto.Name,
-		Nickname:  dto.Nickname,
-		Email:     dto.Email,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+
+	// 패스워드 해시화
+	hashedInput := dto.CreateUserBody{
+		Name:     input.Name,
+		Nickname: input.Nickname,
+		Email:    input.Email,
+		Password: string(hash),
 	}
-	if err := s.repo.Create(&u, string(hash)); err != nil {
+
+	user, err := s.repo.Create(hashedInput)
+	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return user, nil
 }
 
-func (s *ServiceImpl) GetByID(id string) (*User, error) {
-	u, err := s.repo.GetByID(id)
+func (s *ServiceImpl) GetByID(id uuid.UUID) (*ent.User, error) {
+	u, err := s.repo.GetByID(id, false)
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-func (s *ServiceImpl) GetByEmail(email string) (*User, error) {
-	u, err := s.repo.GetByEmail(email)
+func (s *ServiceImpl) GetByEmail(email string) (*ent.User, error) {
+	u, err := s.repo.GetByEmail(email, false)
 	if err != nil {
 		return nil, err
 	}

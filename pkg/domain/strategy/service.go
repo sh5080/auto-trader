@@ -1,14 +1,16 @@
 package strategy
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
 
+	"auto-trader/ent"
+	"auto-trader/pkg/domain/strategy/dto"
 	"auto-trader/pkg/shared/config"
 	"auto-trader/pkg/shared/middleware"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 )
@@ -23,7 +25,7 @@ type Collector interface {
 
 type Executor interface {
 	// TODO: order 도메인 완성 시 실제 메서드 정의
-	ExecuteOrder(ctx context.Context, symbol, action string, quantity, price decimal.Decimal, orderType string) (string, error)
+	ExecuteOrder(symbol, action string, quantity, price decimal.Decimal, orderType string) (string, error)
 }
 
 // PriceData 가격 데이터 구조체
@@ -40,8 +42,8 @@ type Service interface {
 	StartStrategy(id string) error
 	StopStrategy(id string) error
 	RestartStrategy(id string) error
-	CreateStrategy(req *CreateStrategyRequest) (*StrategyDetails, error)
-	UpdateStrategy(id string, req *UpdateStrategyRequest) (*StrategyDetails, error)
+	CreateStrategy(req *dto.CreateStrategyBody) (*StrategyDetails, error)
+	UpdateStrategy(id string, req *dto.UpdateStrategyBody) (*StrategyDetails, error)
 	DeleteStrategy(id string) error
 	GetStrategyPerformance(id string) (*StrategyPerformance, error)
 
@@ -88,6 +90,35 @@ func NewService(
 		activeStrategies: make(map[string]bool),
 		stopChan:         make(chan struct{}),
 		isRunning:        false,
+	}
+}
+
+// ent.Strategy를 StrategyDetails로 변환
+func (s *ServiceImpl) convertToStrategyDetails(strategy *ent.Strategy) *StrategyDetails {
+	description := ""
+	if strategy.Description != nil {
+		description = *strategy.Description
+	}
+
+	createdAt := time.Now()
+	if strategy.CreatedAt != nil {
+		createdAt = *strategy.CreatedAt
+	}
+
+	updatedAt := time.Now()
+	if strategy.UpdatedAt != nil {
+		updatedAt = *strategy.UpdatedAt
+	}
+
+	return &StrategyDetails{
+		ID:          strategy.ID.String(),
+		Name:        strategy.Name,
+		Description: description,
+		Active:      strategy.Active,
+		Symbols:     []string{strategy.Symbol}, // ent.Strategy는 단일 Symbol만 가짐
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+		Status:      "unknown", // 기본값
 	}
 }
 
@@ -209,7 +240,7 @@ func (s *ServiceImpl) registerDefaultStrategies() {
 	}
 
 	// DB에서 활성 전략들 조회
-	strategies, err := s.repository.GetAll()
+	strategies, err := s.repository.GetAll(100, 0) // 적절한 limit, offset 설정
 	if err != nil {
 		logrus.Errorf("❌ 활성 전략 조회 실패: %v", err)
 		return
@@ -219,20 +250,20 @@ func (s *ServiceImpl) registerDefaultStrategies() {
 	activeCount := 0
 	for _, strategy := range strategies {
 		if strategy.Active {
-			// 전략 설정 로드
-			config, err := s.repository.GetConfig(strategy.ID)
-			if err != nil {
-				logrus.Errorf("❌ 전략 설정 로드 실패 (%s): %v", strategy.ID, err)
-				continue
-			}
+			// 전략 설정 로드 (이 메서드는 Repository에 없으므로 주석 처리)
+			// config, err := s.repository.GetConfig(strategy.ID)
+			// if err != nil {
+			// 	logrus.Errorf("❌ 전략 설정 로드 실패 (%s): %v", strategy.ID, err)
+			// 	continue
+			// }
 
-			// 동적 전략 생성
+			// 동적 전략 생성 (임시로 기본값 사용)
 			dynamicStrategy := NewDynamicStrategy(
 				s.dataCollector,
 				s.executor,
 				s.riskManager,
 				s.config,
-				config,
+				&StrategyConfig{}, // 임시 기본 설정
 			)
 
 			// 전략 등록
@@ -251,48 +282,67 @@ func (s *ServiceImpl) registerDefaultStrategies() {
 
 // GetAllStrategies 모든 전략 조회 (Repository 활용)
 func (s *ServiceImpl) GetAllStrategies() ([]*StrategyDetails, error) {
-	strategies, err := s.repository.GetAll()
+	strategies, err := s.repository.GetAll(100, 0) // 적절한 limit, offset 설정
 	if err != nil {
 		return nil, fmt.Errorf("전략 목록 조회 실패: %w", err)
 	}
 
-	// 각 전략의 성과 정보 추가
-	for _, strategy := range strategies {
-		if performance, err := s.repository.GetPerformance(strategy.ID); err == nil {
-			strategy.Performance = performance
-		}
-	}
+	// 각 전략의 성과 정보 추가 (이 메서드는 Repository에 없으므로 주석 처리)
+	// for _, strategy := range strategies {
+	// 	if performance, err := s.repository.GetPerformance(strategy.ID); err == nil {
+	// 		strategy.Performance = performance
+	// 	}
+	// }
 
-	return strategies, nil
+	// ent.Strategy를 StrategyDetails로 변환
+	var result []*StrategyDetails
+	for _, strategy := range strategies {
+		result = append(result, s.convertToStrategyDetails(strategy))
+	}
+	return result, nil
 }
 
 // GetStrategy 특정 전략 조회 (Repository 활용)
 func (s *ServiceImpl) GetStrategy(id string) (*StrategyDetails, error) {
-	strategy, err := s.repository.GetByID(id)
+	// UUID 변환
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("잘못된 전략 ID 형식: %w", err)
+	}
+
+	strategy, err := s.repository.GetByID(uuid)
 	if err != nil {
 		return nil, fmt.Errorf("전략 조회 실패: %w", err)
 	}
 
-	// 성과 정보 추가
-	if performance, err := s.repository.GetPerformance(id); err == nil {
-		strategy.Performance = performance
-	}
+	// 성과 정보 추가 (이 메서드는 Repository에 없으므로 주석 처리)
+	// if performance, err := s.repository.GetPerformance(id); err == nil {
+	// 	strategy.Performance = performance
+	// }
 
-	return strategy, nil
+	return s.convertToStrategyDetails(strategy), nil
 }
 
 // GetStrategyStatus 전략 상태 조회 (Repository 활용)
 func (s *ServiceImpl) GetStrategyStatus(id string) (*StrategyStatus, error) {
 	// 전략 존재 확인
-	_, err := s.repository.GetByID(id)
+	_, err := s.GetStrategy(id)
 	if err != nil {
 		return nil, fmt.Errorf("전략을 찾을 수 없습니다: %w", err)
 	}
 
-	// 상태 조회
-	status, err := s.repository.GetStatus(id)
+	// 상태 조회 (이 메서드는 Repository에 없으므로 임시 반환)
+	uuid, err := uuid.Parse(id)
 	if err != nil {
-		return nil, fmt.Errorf("전략 상태 조회 실패: %w", err)
+		return nil, fmt.Errorf("잘못된 전략 ID 형식: %w", err)
+	}
+
+	status := &StrategyStatus{
+		ID:             uuid,
+		Status:         "unknown",
+		LastExecution:  time.Now(),
+		ExecutionCount: 0,
+		Uptime:         0,
 	}
 
 	return status, nil
@@ -301,27 +351,23 @@ func (s *ServiceImpl) GetStrategyStatus(id string) (*StrategyStatus, error) {
 // StartStrategy 전략 시작 (Repository 활용)
 func (s *ServiceImpl) StartStrategy(id string) error {
 	// 전략 존재 확인
-	strategy, err := s.repository.GetByID(id)
+	strategy, err := s.GetStrategy(id)
 	if err != nil {
 		return fmt.Errorf("전략을 찾을 수 없음: %w", err)
 	}
 
-	// 상태 업데이트
-	status := &StrategyStatus{
-		ID:             id,
-		Status:         "running",
-		LastExecution:  time.Now(),
-		ExecutionCount: 0,
-		Uptime:         0,
-	}
-
-	if err := s.repository.SaveStatus(status); err != nil {
-		return fmt.Errorf("전략 상태 저장 실패: %w", err)
+	// UUID 변환
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("잘못된 전략 ID 형식: %w", err)
 	}
 
 	// 전략 활성화 (DB 업데이트)
-	strategy.Active = true
-	if err := s.repository.Update(strategy); err != nil {
+	updateInput := dto.UpdateStrategyBody{
+		Active: &[]bool{true}[0],
+	}
+
+	if _, err := s.repository.Update(uuid, updateInput); err != nil {
 		return fmt.Errorf("전략 활성화 실패: %w", err)
 	}
 
@@ -340,27 +386,23 @@ func (s *ServiceImpl) StartStrategy(id string) error {
 // StopStrategy 전략 중지 (Repository 활용)
 func (s *ServiceImpl) StopStrategy(id string) error {
 	// 전략 존재 확인
-	strategy, err := s.repository.GetByID(id)
+	strategy, err := s.GetStrategy(id)
 	if err != nil {
 		return fmt.Errorf("전략을 찾을 수 없음: %w", err)
 	}
 
-	// 상태 업데이트
-	status := &StrategyStatus{
-		ID:             id,
-		Status:         "stopped",
-		LastExecution:  time.Now(),
-		ExecutionCount: 0,
-		Uptime:         0,
-	}
-
-	if err := s.repository.SaveStatus(status); err != nil {
-		return fmt.Errorf("전략 상태 저장 실패: %w", err)
+	// UUID 변환
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("잘못된 전략 ID 형식: %w", err)
 	}
 
 	// 전략 비활성화 (DB 업데이트)
-	strategy.Active = false
-	if err := s.repository.Update(strategy); err != nil {
+	updateInput := dto.UpdateStrategyBody{
+		Active: &[]bool{false}[0],
+	}
+
+	if _, err := s.repository.Update(uuid, updateInput); err != nil {
 		return fmt.Errorf("전략 비활성화 실패: %w", err)
 	}
 
@@ -391,74 +433,88 @@ func (s *ServiceImpl) RestartStrategy(id string) error {
 // GetStrategyPerformance 전략 성과 조회 (Repository 활용)
 func (s *ServiceImpl) GetStrategyPerformance(id string) (*StrategyPerformance, error) {
 	// 전략 존재 확인
-	_, err := s.repository.GetByID(id)
+	_, err := s.GetStrategy(id)
 	if err != nil {
 		return nil, fmt.Errorf("전략을 찾을 수 없습니다: %w", err)
 	}
 
-	// 성과 조회
-	performance, err := s.repository.GetPerformance(id)
-	if err != nil {
-		return nil, fmt.Errorf("전략 성과 조회 실패: %w", err)
+	// 성과 조회 (이 메서드는 Repository에 없으므로 임시 반환)
+	performance := &StrategyPerformance{
+		StrategyID:    id,
+		TotalReturn:   0.0,
+		WinRate:       0.0,
+		ProfitLoss:    0.0,
+		TradeCount:    0,
+		LastTradeTime: time.Now(),
+		MaxDrawdown:   0.0,
+		SharpeRatio:   0.0,
 	}
 
 	return performance, nil
 }
 
 // CreateStrategy 새로운 전략 생성 (Repository 활용)
-func (s *ServiceImpl) CreateStrategy(req *CreateStrategyRequest) (*StrategyDetails, error) {
+func (s *ServiceImpl) CreateStrategy(req *dto.CreateStrategyBody) (*StrategyDetails, error) {
 	// 전략 생성
-	strategy := &StrategyDetails{
+	createInput := dto.CreateStrategyBody{
 		Name:        req.Name,
 		Description: req.Description,
-		Symbols:     req.Symbols,
-		Active:      false,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Symbol:      req.Symbol, // req.Symbols 대신 req.Symbol 사용
+		UserID:      req.UserID, // 임시 사용자 ID 대신 req.UserID 사용
+		Active:      req.Active,
 	}
 
 	// DB에 저장
-	if err := s.repository.Create(strategy); err != nil {
+	strategy, err := s.repository.Create(createInput)
+	if err != nil {
 		return nil, fmt.Errorf("전략 생성 실패: %w", err)
 	}
 
 	logrus.Infof("✅ 전략 생성 완료: %s (%s)", strategy.Name, strategy.ID)
-	return strategy, nil
+	return s.convertToStrategyDetails(strategy), nil
 }
 
 // UpdateStrategy 전략 수정 (Repository 활용)
-func (s *ServiceImpl) UpdateStrategy(id string, req *UpdateStrategyRequest) (*StrategyDetails, error) {
+func (s *ServiceImpl) UpdateStrategy(id string, req *dto.UpdateStrategyBody) (*StrategyDetails, error) {
 	// 기존 전략 조회
-	strategy, err := s.repository.GetByID(id)
+	_, err := s.GetStrategy(id)
 	if err != nil {
 		return nil, fmt.Errorf("전략을 찾을 수 없습니다: %w", err)
 	}
 
+	// UUID 변환
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("잘못된 전략 ID 형식: %w", err)
+	}
+
 	// 업데이트할 필드 적용
-	if req.Name != "" {
-		strategy.Name = req.Name
+	updateInput := dto.UpdateStrategyBody{}
+
+	if req.Name != nil {
+		updateInput.Name = req.Name
 	}
-	if req.Description != "" {
-		strategy.Description = req.Description
+	if req.Description != nil {
+		updateInput.Description = req.Description
 	}
-	if len(req.Symbols) > 0 {
-		strategy.Symbols = req.Symbols
+	if req.Symbol != nil {
+		updateInput.Symbol = req.Symbol
 	}
-	strategy.UpdatedAt = time.Now()
 
 	// DB에 저장
-	if err := s.repository.Update(strategy); err != nil {
+	strategy, err := s.repository.Update(uuid, updateInput)
+	if err != nil {
 		return nil, fmt.Errorf("전략 수정 실패: %w", err)
 	}
 
 	logrus.Infof("✅ 전략 수정 완료: %s (%s)", strategy.Name, strategy.ID)
-	return strategy, nil
+	return s.convertToStrategyDetails(strategy), nil
 }
 
 // DeleteStrategy 전략 삭제 (Repository 활용)
 func (s *ServiceImpl) DeleteStrategy(id string) error {
 	// 전략 존재 확인
-	strategy, err := s.repository.GetByID(id)
+	strategy, err := s.GetStrategy(id)
 	if err != nil {
 		return fmt.Errorf("전략을 찾을 수 없습니다: %w", err)
 	}
@@ -470,8 +526,14 @@ func (s *ServiceImpl) DeleteStrategy(id string) error {
 		}
 	}
 
+	// UUID 변환
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("잘못된 전략 ID 형식: %w", err)
+	}
+
 	// DB에서 삭제
-	if err := s.repository.Delete(id); err != nil {
+	if err := s.repository.Delete(uuid); err != nil {
 		return fmt.Errorf("전략 삭제 실패: %w", err)
 	}
 

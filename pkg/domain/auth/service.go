@@ -14,7 +14,7 @@ import (
 )
 
 type Service interface {
-	Login(dto dto.LoginRequest) (*TokenPair, error)
+	Login(dto dto.LoginBody) (*TokenPair, error)
 	Refresh(refreshAuthHeader string) (*TokenPair, error)
 }
 
@@ -30,13 +30,13 @@ func NewService(secret string, accessTTL, refreshTTL time.Duration, users user.S
 }
 
 type TokenPair struct {
-	UserID       string
+	UserID       uuid.UUID
 	AccessToken  string
 	RefreshToken string
 	RefreshJTI   string
 }
 
-func (s *ServiceImpl) Login(dto dto.LoginRequest) (*TokenPair, error) {
+func (s *ServiceImpl) Login(dto dto.LoginBody) (*TokenPair, error) {
 	u, err := s.users.GetByEmail(dto.Email)
 	if err != nil {
 		return nil, errors.New("invalid credentials")

@@ -27,11 +27,12 @@ func NewController(s Service) *Controller { return &Controller{service: s} }
 // @Failure 500 {object} utils.Response
 // @Router /auth/login [post]
 func (ctl *Controller) Login(c *fiber.Ctx) error {
-	var dto dto.LoginRequest
-	if err := utils.ValidateStruct(&dto); err != nil {
-		return utils.ValidationErrorResponse(c, err.Error())
+	loginDto, err := utils.ParseAndValidate[dto.LoginBody](c)
+	if err != nil {
+		return err
 	}
-	res, err := ctl.service.Login(dto)
+
+	res, err := ctl.service.Login(loginDto)
 	if err != nil {
 		return utils.UnauthorizedResponse(c, "이메일 또는 비밀번호가 올바르지 않습니다")
 	}

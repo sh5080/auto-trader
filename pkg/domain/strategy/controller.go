@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"auto-trader/pkg/domain/strategy/dto"
 	"auto-trader/pkg/shared/types"
 	"auto-trader/pkg/shared/utils"
 
@@ -70,13 +71,13 @@ func (ctrl *Controller) GetStrategy(c *fiber.Ctx) error {
 // @Tags strategies
 // @Accept json
 // @Produce json
-// @Param strategy body CreateStrategyRequest true "전략 정보"
+// @Param strategy body dto.CreateStrategyBody true "전략 정보"
 // @Success 201 {object} utils.Response
 // @Failure 400 {object} utils.Response
 // @Failure 500 {object} utils.Response
 // @Router /strategies [post]
 func (ctrl *Controller) CreateStrategy(c *fiber.Ctx) error {
-	var req CreateStrategyRequest
+	var req dto.CreateStrategyBody
 	if err := c.BodyParser(&req); err != nil {
 		return utils.BadRequestResponse(c, "잘못된 요청 형식")
 	}
@@ -99,7 +100,7 @@ func (ctrl *Controller) CreateStrategy(c *fiber.Ctx) error {
 // @Accept json
 // @Produce json
 // @Param id path string true "전략 ID"
-// @Param strategy body UpdateStrategyRequest true "수정할 전략 정보"
+// @Param strategy body dto.UpdateStrategyInput true "수정할 전략 정보"
 // @Success 200 {object} utils.Response
 // @Failure 400 {object} utils.Response
 // @Failure 404 {object} utils.Response
@@ -112,7 +113,7 @@ func (ctrl *Controller) UpdateStrategy(c *fiber.Ctx) error {
 		return utils.ValidationErrorResponse(c, err.Error())
 	}
 
-	var req UpdateStrategyRequest
+	var req dto.UpdateStrategyBody
 	if err := c.BodyParser(&req); err != nil {
 		return utils.BadRequestResponse(c, "잘못된 요청 형식")
 	}

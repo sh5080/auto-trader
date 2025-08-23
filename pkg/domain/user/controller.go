@@ -6,6 +6,7 @@ import (
 	"auto-trader/pkg/shared/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 type Controller struct{ service Service }
@@ -24,20 +25,31 @@ func NewController(s Service) *Controller { return &Controller{service: s} }
 // @Failure 500 {object} utils.Response
 // @Router /users [post]
 func (ctl *Controller) CreateUser(c *fiber.Ctx) error {
-	var dto dto.CreateUserRequest
-
-	if err := c.BodyParser(&dto); err != nil {
-		return utils.ValidationErrorResponse(c, "잘못된 요청 본문입니다")
-	}
-	if err := utils.ValidateStruct(dto); err != nil {
-		return utils.ValidationErrorResponse(c, err.Error())
+	createUserDto, err := utils.ParseAndValidate[dto.CreateUserBody](c)
+	if err != nil {
+		return err // 이미 적절한 에러 응답이 포함됨
 	}
 
-	u, err := ctl.service.CreateUser(dto)
+	u, err := ctl.service.CreateUser(createUserDto)
 	if err != nil {
 		return utils.CommonErrorResponse(c, err, "사용자 생성 실패")
 	}
-	return utils.SuccessResponse(c, u)
+
+	// ent.User를 Response DTO로 변환
+	response := &dto.CreateUserResponse{
+		User: &dto.UserResponse{
+			ID:        u.ID,
+			Name:      u.Name,
+			Nickname:  u.Nickname,
+			Email:     u.Email,
+			IsValid:   u.IsValid,
+			CreatedAt: *u.CreatedAt,
+			UpdatedAt: *u.UpdatedAt,
+		},
+		Message: "사용자가 성공적으로 생성되었습니다",
+	}
+
+	return utils.SuccessResponse(c, response)
 }
 
 // GetUser
@@ -59,7 +71,7 @@ func (ctl *Controller) GetUser(c *fiber.Ctx) error {
 	if err := utils.ValidateStruct(path); err != nil {
 		return utils.ValidationErrorResponse(c, err.Error())
 	}
-	u, err := ctl.service.GetByID(path.ID)
+	u, err := ctl.service.GetByID(uuid.MustParse(path.ID))
 	if err != nil {
 		return utils.ValidationErrorResponse(c, err.Error())
 	}

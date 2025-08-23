@@ -62,7 +62,6 @@ func (ctrl *Controller) GetPortfolio(c *fiber.Ctx) error {
 func (ctrl *Controller) GetPortfolioSummary(c *fiber.Ctx) error {
 	var q dto.GetPortfolioSummaryQuery
 	userID := utils.GetUserID(c)
-	q.ForceRefresh = c.QueryBool("forceRefresh", false)
 	if err := utils.ValidateStruct(q); err != nil {
 		return utils.ValidationErrorResponse(c, err.Error())
 	}
@@ -91,7 +90,6 @@ func (ctrl *Controller) GetPositions(c *fiber.Ctx) error {
 	var q dto.GetPositionsQuery
 	userID := utils.GetUserID(c)
 	q.Symbol = c.Query("symbol")
-	q.ForceRefresh = c.QueryBool("forceRefresh", false)
 	if err := utils.ValidateStruct(q); err != nil {
 		return utils.ValidationErrorResponse(c, err.Error())
 	}
