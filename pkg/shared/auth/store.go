@@ -1,22 +1,26 @@
 package auth
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/google/uuid"
+)
 
 // 간단한 인메모리 RTR 저장소 (userID -> refresh JTI)
 var refreshStore = struct {
 	sync.RWMutex
-	userToJTI map[string]string
-}{userToJTI: make(map[string]string)}
+	userToJTI map[uuid.UUID]string
+}{userToJTI: make(map[uuid.UUID]string)}
 
 // SetRefreshJTI 사용자 리프레시 토큰 JTI 저장/갱신
-func SetRefreshJTI(userID, jti string) {
+func SetRefreshJTI(userID uuid.UUID, jti string) {
 	refreshStore.Lock()
 	refreshStore.userToJTI[userID] = jti
 	refreshStore.Unlock()
 }
 
 // GetRefreshJTI 사용자 리프레시 토큰 현재 JTI 조회
-func GetRefreshJTI(userID string) (string, bool) {
+func GetRefreshJTI(userID uuid.UUID) (string, bool) {
 	refreshStore.RLock()
 	jti, ok := refreshStore.userToJTI[userID]
 	refreshStore.RUnlock()

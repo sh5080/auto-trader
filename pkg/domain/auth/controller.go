@@ -3,7 +3,10 @@ package auth
 import (
 	"auto-trader/pkg/domain/auth/dto"
 	authstore "auto-trader/pkg/shared/auth"
+	"auto-trader/pkg/shared/types"
 	"auto-trader/pkg/shared/utils"
+
+	"errors"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,7 +23,7 @@ func NewController(s Service) *Controller { return &Controller{service: s} }
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Param body body dto.LoginRequest true "로그인 요청"
+// @Param body body dto.LoginBody true "로그인 요청"
 // @Success 200 {object} utils.Response
 // @Failure 400 {object} utils.Response
 // @Failure 401 {object} utils.Response
@@ -34,7 +37,10 @@ func (ctl *Controller) Login(c *fiber.Ctx) error {
 
 	res, err := ctl.service.Login(loginDto)
 	if err != nil {
-		return utils.UnauthorizedResponse(c, "이메일 또는 비밀번호가 올바르지 않습니다")
+		if errors.Is(err, types.ErrInvalidCredentials) {
+			return utils.UnauthorizedResponse(c, "이메일 또는 비밀번호가 올바르지 않습니다")
+		}
+		return utils.InternalServerErrorResponse(c, err.Error(), err)
 	}
 	// RTR 저장
 	authstore.SetRefreshJTI(res.UserID, res.RefreshJTI)

@@ -6,16 +6,17 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // UserClaims 애플리케이션 공통 클레임
 type UserClaims struct {
-	UserID string `json:"userID"`
+	UserID uuid.UUID `json:"userID"`
 	jwt.RegisteredClaims
 }
 
 // GenerateTokens 액세스/리프레시 토큰 생성
-func GenerateTokens(userID, secret string, accessTTL, refreshTTL time.Duration, refreshJTI string) (accessToken string, refreshToken string, err error) {
+func GenerateTokens(userID uuid.UUID, secret string, accessTTL, refreshTTL time.Duration, refreshJTI string) (accessToken string, refreshToken string, err error) {
 	// Access Token
 	accessClaims := &UserClaims{
 		UserID: userID,
