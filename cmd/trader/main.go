@@ -2,22 +2,15 @@ package main
 
 import (
 	"log"
-	"time"
 
-	"auto-trader/pkg/api/kis"
-	"auto-trader/pkg/domain/auth"
-	"auto-trader/pkg/domain/portfolio"
-	"auto-trader/pkg/domain/strategy"
-	"auto-trader/pkg/domain/user"
+	_ "auto-trader/docs" // swagger docs
 	"auto-trader/pkg/shared/config"
 	"auto-trader/pkg/shared/database"
 	"auto-trader/pkg/shared/middleware"
+	"auto-trader/pkg/shared/modules"
 	"auto-trader/pkg/shared/router"
 
 	"github.com/sirupsen/logrus"
-
-	// Swagger imports
-	_ "auto-trader/docs"
 )
 
 // @title Auto Trader API
@@ -59,7 +52,13 @@ func initializeApp() *router.Router {
 	// Swagger 라우트 추가
 	mainRouter.SetupSwagger()
 	// 라우트 설정
-	mainRouter.SetupRoutes(dependencies.StrategyController, dependencies.PortfolioController, dependencies.AuthController, dependencies.UserController, cfg)
+	mainRouter.SetupRoutes(
+		dependencies.Modules.Strategy.Controller,
+		dependencies.Modules.Portfolio.Controller,
+		dependencies.Modules.Auth.Controller,
+		dependencies.Modules.User.Controller,
+		cfg,
+	)
 
 	// 백그라운드 작업 시작
 	startBackgroundTasks(dependencies)
@@ -68,17 +67,11 @@ func initializeApp() *router.Router {
 	return mainRouter
 }
 
-// 정리된 Dependencies - 실제 사용하는 것만
+// Dependencies 애플리케이션 의존성들
 type Dependencies struct {
-	Database            database.DB
-	RiskManager         *middleware.Manager
-	AuthService         auth.Service
-	AuthController      *auth.Controller
-	UserService         user.Service
-	UserController      *user.Controller
-	StrategyService     strategy.Service
-	StrategyController  *strategy.Controller
-	PortfolioController *portfolio.Controller
+	Database    database.DB
+	RiskManager *middleware.Manager
+	Modules     *modules.Modules
 }
 
 func initializeDependencies(cfg *config.Config) *Dependencies {
@@ -95,70 +88,17 @@ func initializeDependencies(cfg *config.Config) *Dependencies {
 	riskManager := middleware.NewManager(cfg)
 	logrus.Info("✅ 리스크 관리자 초기화")
 
-	// 3. 전략 리포지토리 초기화
-	strategyRepo := strategy.NewDBRepository(db.GetDB())
-	logrus.Info("✅ 전략 리포지토리 초기화")
+	// 3. ent 클라이언트 가져오기
+	entClient := db.GetEntClient()
+	logrus.Info("✅ ent 클라이언트 준비 완료")
 
-	// 4. 전략 서비스 초기화
-	// 현재는 portfolio/order 도메인이 없으므로 nil
-	var dataCollector strategy.Collector = nil
-	var executor strategy.Executor = nil
-
-	strategyService := strategy.NewService(
-		strategyRepo,
-		dataCollector, // TODO: portfolio 도메인 완성 후 연결
-		executor,      // TODO: order 도메인 완성 후 연결
-		riskManager,
-		cfg,
-	)
-	logrus.Info("✅ 전략 서비스 초기화")
-
-	// 5. 인증 서비스/컨트롤러 초기화
-	// user 도메인 SQL 레포/서비스 준비
-	userRepo := user.NewDBRepository(db.GetDB())
-	userService := user.NewService(userRepo)
-	authService := auth.NewService(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL, userService)
-	authController := auth.NewController(authService)
-
-	// 6. 전략 컨트롤러 초기화
-	strategyController := strategy.NewController(strategyService)
-	logrus.Info("✅ 전략 컨트롤러 초기화")
-
-	// 7. 포트폴리오 서비스 초기화
-	portfolioRepo := portfolio.NewDBRepository(db.GetDB())
-
-	// KIS API 외부 데이터 소스 초기화
-	kisDataSource := kis.NewKISDataSource(
-		cfg.KIS.AppKey,
-		cfg.KIS.AppSecret,
-		cfg.KIS.BaseURL,
-		cfg.KIS.IsDemo,
-	)
-	kisDataSource.SetAccessToken(cfg.KIS.AccessToken)
-
-	portfolioService := portfolio.NewService(portfolioRepo, kisDataSource, portfolio.CacheConfig{
-		PortfolioCacheTTL: 1 * time.Hour,
-		PriceCacheTTL:     1 * time.Hour,
-		PositionCacheTTL:  1 * time.Hour,
-	})
-	logrus.Info("✅ 포트폴리오 서비스 초기화")
-
-	// 8. 포트폴리오 컨트롤러 초기화
-	portfolioController := portfolio.NewController(portfolioService)
-	logrus.Info("✅ 포트폴리오 컨트롤러 초기화")
-
-	logrus.Info("🎉 모든 의존성 초기화 완료")
+	// 4. 모듈 초기화
+	allModules := modules.InitializeModules(entClient, riskManager, cfg)
 
 	return &Dependencies{
-		Database:            db,
-		RiskManager:         riskManager,
-		AuthService:         authService,
-		AuthController:      authController,
-		UserService:         userService,
-		UserController:      user.NewController(userService),
-		StrategyService:     strategyService,
-		StrategyController:  strategyController,
-		PortfolioController: portfolioController,
+		Database:    db,
+		RiskManager: riskManager,
+		Modules:     allModules,
 	}
 }
 
@@ -167,7 +107,7 @@ func startBackgroundTasks(deps *Dependencies) {
 
 	// 전략 서비스 시작 (비동기)
 	go func() {
-		if err := deps.StrategyService.Start(); err != nil {
+		if err := deps.Modules.Strategy.Service.Start(); err != nil {
 			logrus.Errorf("❌ 전략 서비스 시작 실패: %v", err)
 		} else {
 			logrus.Info("✅ 전략 서비스 시작 완료")
