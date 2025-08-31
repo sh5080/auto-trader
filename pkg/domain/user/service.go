@@ -12,8 +12,8 @@ import (
 
 type Service interface {
 	CreateUser(input dto.CreateUserBody) (*ent.User, error)
-	GetByID(id uuid.UUID) (*ent.User, error)
-	GetByEmail(email string) (*ent.User, error)
+	GetByID(id uuid.UUID, includePassword ...bool) (*ent.User, error)
+	GetByEmail(email string, includePassword ...bool) (*ent.User, error)
 	VerifyPassword(hashed, password string) error
 }
 
@@ -51,16 +51,26 @@ func (s *ServiceImpl) CreateUser(input dto.CreateUserBody) (*ent.User, error) {
 	return user, nil
 }
 
-func (s *ServiceImpl) GetByID(id uuid.UUID) (*ent.User, error) {
-	u, err := s.repo.GetByID(id, false)
+func (s *ServiceImpl) GetByID(id uuid.UUID, includePassword ...bool) (*ent.User, error) {
+	include := false
+	if len(includePassword) > 0 {
+		include = includePassword[0]
+	}
+
+	u, err := s.repo.GetByID(id, include)
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-func (s *ServiceImpl) GetByEmail(email string) (*ent.User, error) {
-	u, err := s.repo.GetByEmail(email, false)
+func (s *ServiceImpl) GetByEmail(email string, includePassword ...bool) (*ent.User, error) {
+	include := false
+	if len(includePassword) > 0 {
+		include = includePassword[0]
+	}
+
+	u, err := s.repo.GetByEmail(email, include)
 	if err != nil {
 		return nil, err
 	}

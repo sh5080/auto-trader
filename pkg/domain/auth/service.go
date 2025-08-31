@@ -37,7 +37,7 @@ type TokenPair struct {
 }
 
 func (s *ServiceImpl) Login(dto dto.LoginBody) (*TokenPair, error) {
-	u, err := s.users.GetByEmail(dto.Email)
+	u, err := s.users.GetByEmail(dto.Email, true)
 	if err != nil || u == nil {
 		return nil, types.ErrInvalidCredentials
 	}
