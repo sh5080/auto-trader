@@ -1,12 +1,12 @@
 package auth
 
 import (
-	"errors"
 	"strings"
 	"time"
 
 	"auto-trader/pkg/domain/auth/dto"
 	"auto-trader/pkg/domain/user"
+	"auto-trader/pkg/shared/types"
 	"auto-trader/pkg/shared/utils"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -38,11 +38,11 @@ type TokenPair struct {
 
 func (s *ServiceImpl) Login(dto dto.LoginBody) (*TokenPair, error) {
 	u, err := s.users.GetByEmail(dto.Email)
-	if err != nil {
-		return nil, errors.New("invalid credentials")
+	if err != nil || u == nil {
+		return nil, types.ErrInvalidCredentials
 	}
 	if err := s.users.VerifyPassword(u.Password, dto.Password); err != nil {
-		return nil, errors.New("invalid credentials")
+		return nil, types.ErrInvalidCredentials
 	}
 	jti := uuid.NewString()
 	at, rt, err := utils.GenerateTokens(u.ID, s.secret, s.accessTTL, s.refreshTTL, jti)
